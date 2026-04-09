@@ -1,77 +1,84 @@
-name: Build kmod-atlantic (matching firmware)
+name: Build ImmortalWrt 24.10.5 (AQC113C Enhanced)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 在 GitHub 页面手动点击运行
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-24.10
+  TAG_VERSION: v24.10.5
+  TZ: Asia/Shanghai
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # 强制 Node.js 24
+    runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout ImmortalWrt repo
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Cache build tools and toolchain
-      uses: actions/cache@v3
-      with:
-        path: |
-          staging_dir/host
-          staging_dir/toolchain-*
-          dl
-        key: ${{ runner.os }}-immortalwrt-${{ hashFiles('.config') }}
-        restore-keys: |
-          ${{ runner.os }}-immortalwrt-
-
-    - name: Update feeds
+    - name: Initialization Environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$USER /workdir
+
+    - name: Clone Source Code
+      working-directory: /workdir
+      run: |
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        cd openwrt
+        git checkout $TAG_VERSION
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+
+    - name: Update & Install Feeds
+      run: |
+        cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Enable atlantic module
+    - name: Inject AQC113C Configuration
       run: |
-        # 确保 atlantic 驱动启用 (M)
-        echo "CONFIG_NET_VENDOR_AQUANTIA=y" >> .config
-        echo "CONFIG_ATLANTIC=m" >> .config
+        cd openwrt
+        # 使用官方 x86_64 基础配置
+        curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/$TAG_VERSION/config/x86/64 > .config
+        
+        # 核心：注入 AQC113C 驱动和必需的二进制固件
+        echo "CONFIG_PACKAGE_kmod-atlantic=y" >> .config
+        echo "CONFIG_PACKAGE_linux-firmware-aquantia=y" >> .config
+        
+        # 辅助工具：方便刷机后调试
+        echo "CONFIG_PACKAGE_ethtool=y" >> .config
+        echo "CONFIG_PACKAGE_pciutils=y" >> .config
+        
+        # 自动补全所有依赖
         make defconfig
 
-    - name: Compile atlantic kernel module
+    - name: Download DL Packages
       run: |
-        # 编译内核模块
-        make target/linux/compile V=s
-        # 安装 atlantic 到 staging_dir，以便生成 ipk
-        make target/linux/install V=s
+        cd openwrt
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
-    - name: Generate kmod-atlantic ipk
+    - name: Compile Firmware
+      id: compile
       run: |
-        # 手动打包 kmod-atlantic
-        mkdir -p package/kernel/atlantic
-        cat > package/kernel/atlantic/Makefile << 'EOF'
-include $(TOPDIR)/rules.mk
-PKG_NAME:=kmod-atlantic
-PKG_VERSION:=6.6.122
-PKG_RELEASE:=1
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        # 开始全量编译
+        make -j$(nproc) || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
 
-include $(INCLUDE_DIR)/kernel.mk
-include $(INCLUDE_DIR)/package.mk
-
-define KernelPackage/kmod-atlantic
-  SUBMENU:=Network Drivers
-  TITLE:=Aquantia Atlantic Ethernet driver
-  FILES:=$(PKG_BUILD_DIR)/drivers/net/ethernet/aquantia/atlantic/atlantic.ko
-  AUTOLOAD:=$(call AutoLoad,50,kmod-atlantic)
-endef
-
-$(eval $(call KernelPackage,kmod-atlantic))
-EOF
-
-        make package/kernel/atlantic/compile V=s
-        make package/kernel/atlantic/install V=s
-
-    - name: Upload kmod-atlantic.ipk
+    - name: Upload Firmware
       uses: actions/upload-artifact@v4
+      if: steps.compile.outputs.status == 'success'
       with:
-        name: kmod-atlantic-ipk
-        path: bin/packages/x86_64/kmod-atlantic*.ipk
+        name: ImmortalWrt_v24.10.5_AQC113C
+        path: openwrt/bin/targets/x86/64/*
