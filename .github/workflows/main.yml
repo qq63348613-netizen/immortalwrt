@@ -1,4 +1,4 @@
-name: Build_Standard_AQC113C
+name: Build_Standard_AQC113C_v2
 
 on:
   workflow_dispatch:
@@ -31,27 +31,30 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Generate Full Standard Config
+      - name: Generate Standard Full Config
         run: |
           cd openwrt
-          # 1. 直接拉取官方 24.10.5 的完整 x86_64 预置模板
-          # 这里换了一个更稳定的地址，涵盖了官方所有的默认插件
-          curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/v24.10.5/config/x86/64 > .config
+          # --- 核心改进：通过脚本生成官方标准架构配置 ---
+          # 1. 设置 x86_64 目标
+          echo "CONFIG_TARGET_x86=y" > .config
+          echo "CONFIG_TARGET_x86_64=y" >> .config
+          echo "CONFIG_TARGET_x86_64_DEVICE_generic=y" >> .config
           
-          # 2. 在官方标准基础上，强行开启 AQC113C 驱动
+          # 2. 强制开启 LuCI (网页界面) 和 中文语言包（这就是官方标准版的核心）
+          echo "CONFIG_PACKAGE_luci=y" >> .config
+          echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
+          echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
+          
+          # 3. 注入 AQC113C 驱动与固件
           echo "CONFIG_PACKAGE_kmod-atlantic=y" >> .config
           echo "CONFIG_PACKAGE_linux-firmware-aquantia=y" >> .config
           
-          # 3. 补充官方版通常包含的硬件管理工具
+          # 4. 加入常用的官方标准版组件 (磁盘、网络工具)
           echo "CONFIG_PACKAGE_ethtool=y" >> .config
           echo "CONFIG_PACKAGE_pciutils=y" >> .config
-          echo "CONFIG_PACKAGE_lsblk=y" >> .config
+          echo "CONFIG_PACKAGE_fdisk=y" >> .config
           
-          # 4. 确保包含 LuCI 网页界面（官方标准版的核心）
-          echo "CONFIG_PACKAGE_luci=y" >> .config
-          echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
-          
-          # 5. 自动扩充其他依赖，并补齐官方标准包
+          # 5. 执行 defconfig，系统会自动按照标准版逻辑补齐成百上千个依赖
           make defconfig
 
       - name: Download
@@ -62,7 +65,6 @@ jobs:
       - name: Compile
         run: |
           cd openwrt
-          # 全量编译，时间会比之前长
           make -j$(nproc) || make -j1 V=s
 
       - name: Upload
