@@ -1,57 +1,92 @@
-name: Build kmod-atlantic
+name: Build ImmortalWrt 24.10.5 (AQC113C Enhanced)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手动点击 Actions 运行
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-24.10
+  TAG_VERSION: v24.10.5
+  TZ: Asia/Shanghai
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout ImmortalWrt source
-        uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev gawk flex bison git unzip python3 python3-setuptools python3-dev swig
+    - name: Initialization Environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$USER /workdir
 
-      - name: Prepare atlantic package
-        run: |
-          # 创建 package/kernel/atlantic
-          mkdir -p package/kernel/atlantic
-          cat > package/kernel/atlantic/Makefile << 'EOF'
-include $(TOPDIR)/rules.mk
-PKG_NAME:=kmod-atlantic
-PKG_VERSION:=6.6.122
-PKG_RELEASE:=1
+    - name: Clone Source Code
+      working-directory: /workdir
+      run: |
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        cd openwrt
+        # 强制锁定到 24.10.5 稳定版本标签
+        git checkout $TAG_VERSION
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-include $(INCLUDE_DIR)/kernel.mk
-include $(INCLUDE_DIR)/package.mk
+    - name: Update & Install Feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-define KernelPackage/kmod-atlantic
-  SUBMENU:=Network Drivers
-  TITLE:=Aquantia Atlantic Ethernet driver
-  FILES:=$(PKG_BUILD_DIR)/drivers/net/ethernet/aquantia/atlantic/atlantic.ko
-  AUTOLOAD:=$(call AutoLoad,50,kmod-atlantic)
-endef
+    - name: Inject AQC113C Configuration
+      run: |
+        cd openwrt
+        # 1. 自动根据 x86_64 默认模板生成初始配置
+        curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/$TAG_VERSION/config/x86/64 > .config
+        
+        # 2. 注入 Marvell / Aquantia AQC113C 驱动核心组件
+        echo "CONFIG_PACKAGE_kmod-atlantic=y" >> .config
+        echo "CONFIG_PACKAGE_linux-firmware-aquantia=y" >> .config
+        
+        # 3. 辅助诊断工具（建议开启，方便后期排查）
+        echo "CONFIG_PACKAGE_ethtool=y" >> .config
+        echo "CONFIG_PACKAGE_pciutils=y" >> .config
+        
+        # 4. 解决 24.10.5 常见的依赖，确保生成完整配置
+        make defconfig
 
-$(eval $(call KernelPackage,kmod-atlantic))
-EOF
+    - name: Download DL Packages
+      run: |
+        cd openwrt
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
-      - name: Enable atlantic driver in config
-        run: |
-          echo "CONFIG_NET_VENDOR_AQUANTIA=y" >> .config
-          echo "CONFIG_ATLANTIC=m" >> .config
-          echo "CONFIG_MACSEC=m" >> .config
-          make defconfig
+    - name: Compile Firmware
+      id: compile
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        # 24.10.5 在 6.6 内核上编译非常耗时，首次建议使用全部核心
+        make -j$(nproc) || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Compile kmod-atlantic
-        run: |
-          make package/kernel/atlantic/compile V=s
+    - name: Organize Files
+      if: steps.compile.outputs.status == 'success'
+      run: |
+        cd openwrt/bin/targets/x86/64
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
-      - name: Upload kmod-atlantic ipk
-        uses: actions/upload-artifact@v4
-        with:
-          name: kmod-atlantic-ipk
-          path: bin/packages/**/kmod-atlantic*.ipk
+    - name: Upload Firmware
+      uses: actions/upload-artifact@v4
+      if: env.FIRMWARE
+      with:
+        name: ImmortalWrt_v24.10.5_AQC113C
+        path: ${{ env.FIRMWARE }}/*
