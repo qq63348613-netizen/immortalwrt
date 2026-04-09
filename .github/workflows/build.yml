@@ -1,4 +1,4 @@
-name: Build ImmortalWrt Full
+name: Build ImmortalWrt Full (24.10.5)
 
 on:
   workflow_dispatch:
@@ -11,23 +11,69 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Clone source
+    - name: Clone ImmortalWrt 24.10.5
       run: |
-        git clone https://github.com/immortalwrt/immortalwrt
-        mv immortalwrt openwrt
+        git clone -b v24.10.5 https://github.com/immortalwrt/immortalwrt openwrt
 
-    - name: Prepare
+    - name: Update & Install Feeds
       run: |
         cd openwrt
-        chmod +x ../scripts/custom.sh
-        ../scripts/custom.sh
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-    - name: Download deps
+    - name: Custom Config
+      run: |
+        cd openwrt
+
+        # ===== 驱动 =====
+        echo "CONFIG_PACKAGE_kmod-atlantic=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-macsec=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-crypto-gcm=y" >> .config
+        echo "CONFIG_PACKAGE_ethtool=y" >> .config
+        echo "CONFIG_PACKAGE_pciutils=y" >> .config
+
+        # ===== Passwall =====
+        echo "CONFIG_PACKAGE_luci-app-passwall=y" >> .config
+        echo "CONFIG_PACKAGE_xray-core=y" >> .config
+        echo "CONFIG_PACKAGE_sing-box=y" >> .config
+
+        # ===== AdGuardHome =====
+        echo "CONFIG_PACKAGE_AdGuardHome=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> .config
+
+        # ===== Docker =====
+        echo "CONFIG_PACKAGE_docker=y" >> .config
+        echo "CONFIG_PACKAGE_dockerd=y" >> .config
+        echo "CONFIG_PACKAGE_docker-compose=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> .config
+
+        # ===== LuCI 全家桶 =====
+        echo "CONFIG_PACKAGE_luci=y" >> .config
+        echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-firewall=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-opkg=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-filetransfer=y" >> .config
+
+        # ===== 网络优化 =====
+        echo "CONFIG_PACKAGE_irqbalance=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-tcp-bbr=y" >> .config
+
+        # 默认配置
+        make defconfig
+
+    - name: Download packages
       run: |
         cd openwrt
         make download -j8
 
-    - name: Build
+    - name: Build firmware
       run: |
         cd openwrt
         make -j$(nproc)
+
+    - name: Upload firmware
+      uses: actions/upload-artifact@v4
+      with:
+        name: ImmortalWrt-x86-64
+        path: openwrt/bin/targets/x86/64/
