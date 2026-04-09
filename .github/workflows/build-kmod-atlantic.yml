@@ -7,44 +7,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # 强制 Node.js 24
-
     steps:
-    - name: Checkout ImmortalWrt repo
-      uses: actions/checkout@v4
+      - name: Checkout ImmortalWrt source
+        uses: actions/checkout@v4
 
-    - name: Cache build tools and toolchain
-      uses: actions/cache@v3
-      with:
-        path: |
-          staging_dir/host
-          staging_dir/toolchain-*
-          dl
-        key: ${{ runner.os }}-immortalwrt-${{ hashFiles('.config') }}
-        restore-keys: |
-          ${{ runner.os }}-immortalwrt-
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev gawk flex bison git unzip python3 python3-setuptools python3-dev swig
 
-    - name: Update feeds
-      run: |
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-
-    - name: Enable atlantic module
-      run: |
-        echo "CONFIG_NET_VENDOR_AQUANTIA=y" >> .config
-        echo "CONFIG_ATLANTIC=m" >> .config
-        make defconfig
-
-    - name: Compile atlantic kernel module
-      run: |
-        make target/linux/compile V=s
-        make target/linux/install V=s
-
-    - name: Generate kmod-atlantic ipk
-      run: |
-        mkdir -p package/kernel/atlantic
-        cat > package/kernel/atlantic/Makefile << 'EOF'
+      - name: Prepare atlantic package
+        run: |
+          # 创建 package/kernel/atlantic
+          mkdir -p package/kernel/atlantic
+          cat > package/kernel/atlantic/Makefile << 'EOF'
 include $(TOPDIR)/rules.mk
 PKG_NAME:=kmod-atlantic
 PKG_VERSION:=6.6.122
@@ -62,11 +38,20 @@ endef
 
 $(eval $(call KernelPackage,kmod-atlantic))
 EOF
-        make package/kernel/atlantic/compile V=s
-        make package/kernel/atlantic/install V=s
 
-    - name: Upload kmod-atlantic.ipk
-      uses: actions/upload-artifact@v4
-      with:
-        name: kmod-atlantic-ipk
-        path: bin/packages/x86_64/kmod-atlantic*.ipk
+      - name: Enable atlantic driver in config
+        run: |
+          echo "CONFIG_NET_VENDOR_AQUANTIA=y" >> .config
+          echo "CONFIG_ATLANTIC=m" >> .config
+          echo "CONFIG_MACSEC=m" >> .config
+          make defconfig
+
+      - name: Compile kmod-atlantic
+        run: |
+          make package/kernel/atlantic/compile V=s
+
+      - name: Upload kmod-atlantic ipk
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmod-atlantic-ipk
+          path: bin/packages/**/kmod-atlantic*.ipk
