@@ -1,4 +1,4 @@
-name: AQC113C_Build
+name: AQC113C_Build_Fixed
 
 on:
   workflow_dispatch:
@@ -20,9 +20,10 @@ jobs:
 
       - name: Clone source
         run: |
+          # 克隆 24.10 分支
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-24.10 openwrt
           cd openwrt
-          # 锁定 24.10.5 版本
+          # 确保切换到 24.10.5 标签
           git fetch --tags
           git checkout v24.10.5
 
@@ -35,11 +36,21 @@ jobs:
       - name: Generate Config
         run: |
           cd openwrt
-          # 强制写入 x86_64 基础配置并添加 AQC113 驱动
-          curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/v24.10.5/config/x86/64 > .config
+          # 步骤修正：不再通过 curl 下载远程 config，直接使用源码自带的生成命令
+          # 设置目标为 x86_64
+          echo "CONFIG_TARGET_x86=y" > .config
+          echo "CONFIG_TARGET_x86_64=y" >> .config
+          echo "CONFIG_TARGET_x86_64_DEVICE_generic=y" >> .config
+          
+          # 核心驱动注入
           echo "CONFIG_PACKAGE_kmod-atlantic=y" >> .config
           echo "CONFIG_PACKAGE_linux-firmware-aquantia=y" >> .config
+          
+          # 常用工具注入
           echo "CONFIG_PACKAGE_ethtool=y" >> .config
+          echo "CONFIG_PACKAGE_pciutils=y" >> .config
+          
+          # 补全所有默认依赖
           make defconfig
 
       - name: Download
@@ -50,10 +61,11 @@ jobs:
       - name: Compile
         run: |
           cd openwrt
+          # 开启多线程编译
           make -j$(nproc) || make -j1 V=s
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Firmware_AQC113C
+          name: ImmortalWrt_24.10.5_AQC113C
           path: openwrt/bin/targets/x86/64/*
