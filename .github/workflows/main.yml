@@ -1,4 +1,4 @@
-name: AQC113C_Build_Fixed
+name: Build_Standard_AQC113C
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Space cleanup
+      - name: Initialization Environment
         run: |
           sudo rm -rf /usr/share/dotnet /etc/apt/sources.list.d/* /usr/local/lib/android
           sudo -E apt-get -qq update
@@ -20,10 +20,8 @@ jobs:
 
       - name: Clone source
         run: |
-          # 克隆 24.10 分支
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-24.10 openwrt
           cd openwrt
-          # 确保切换到 24.10.5 标签
           git fetch --tags
           git checkout v24.10.5
 
@@ -33,39 +31,42 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Generate Config
+      - name: Generate Full Standard Config
         run: |
           cd openwrt
-          # 步骤修正：不再通过 curl 下载远程 config，直接使用源码自带的生成命令
-          # 设置目标为 x86_64
-          echo "CONFIG_TARGET_x86=y" > .config
-          echo "CONFIG_TARGET_x86_64=y" >> .config
-          echo "CONFIG_TARGET_x86_64_DEVICE_generic=y" >> .config
+          # 1. 直接拉取官方 24.10.5 的完整 x86_64 预置模板
+          # 这里换了一个更稳定的地址，涵盖了官方所有的默认插件
+          curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/v24.10.5/config/x86/64 > .config
           
-          # 核心驱动注入
+          # 2. 在官方标准基础上，强行开启 AQC113C 驱动
           echo "CONFIG_PACKAGE_kmod-atlantic=y" >> .config
           echo "CONFIG_PACKAGE_linux-firmware-aquantia=y" >> .config
           
-          # 常用工具注入
+          # 3. 补充官方版通常包含的硬件管理工具
           echo "CONFIG_PACKAGE_ethtool=y" >> .config
           echo "CONFIG_PACKAGE_pciutils=y" >> .config
+          echo "CONFIG_PACKAGE_lsblk=y" >> .config
           
-          # 补全所有默认依赖
+          # 4. 确保包含 LuCI 网页界面（官方标准版的核心）
+          echo "CONFIG_PACKAGE_luci=y" >> .config
+          echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
+          
+          # 5. 自动扩充其他依赖，并补齐官方标准包
           make defconfig
 
       - name: Download
         run: |
           cd openwrt
-          make download -j8
+          make download -j16
 
       - name: Compile
         run: |
           cd openwrt
-          # 开启多线程编译
+          # 全量编译，时间会比之前长
           make -j$(nproc) || make -j1 V=s
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: ImmortalWrt_24.10.5_AQC113C
+          name: ImmortalWrt_Standard_AQC113C
           path: openwrt/bin/targets/x86/64/*
