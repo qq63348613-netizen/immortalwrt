@@ -1,4 +1,4 @@
-name: Build ImmortalWrt Official + AQC113 Driver
+name: Build kmod-atlantic for ImmortalWrt Official
 
 on:
   workflow_dispatch:
@@ -26,29 +26,24 @@ jobs:
         cd openwrt
         make distclean
 
-    - name: Default Config + Add Driver
+    - name: Configure Only Atlantic Driver
       run: |
         cd openwrt
-        # 使用官方默认配置
+        # 加载官方默认配置（全家桶原版不动）
         make defconfig
 
-        # ===== 只加网卡驱动 =====
+        # 只加网卡驱动
         echo "CONFIG_PACKAGE_kmod-atlantic=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-macsec=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-crypto-gcm=y" >> .config
-        echo "CONFIG_PACKAGE_ethtool=y" >> .config
-        echo "CONFIG_PACKAGE_pciutils=y" >> .config
 
         make defconfig
 
-    - name: Build Firmware
+    - name: Build kmod-atlantic Package
       run: |
         cd openwrt
-        # -j1 + V=s 保证日志完整，方便调试
-        make -j1 V=s
+        make package/kernel/atlantic/compile V=s
 
-    - name: Upload Firmware
+    - name: Upload kmod-atlantic .ipk
       uses: actions/upload-artifact@v4
       with:
-        name: ImmortalWrt-x86-64-official-driver
-        path: openwrt/bin/targets/x86/64/
+        name: kmod-atlantic
+        path: openwrt/bin/packages/x86_64/kmod-atlantic*.ipk
