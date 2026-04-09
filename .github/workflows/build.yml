@@ -1,4 +1,4 @@
-name: Build ImmortalWrt Lite (24.10.5)
+name: Build ImmortalWrt Official + AQC113 Driver
 
 on:
   workflow_dispatch:
@@ -21,52 +21,34 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Custom Config
+    - name: Clean Previous Build
       run: |
         cd openwrt
+        make distclean
 
-        # ===== 禁用 Rust（关键）=====
-        echo "CONFIG_PACKAGE_rust=n" >> .config
-        echo "CONFIG_PACKAGE_cargo=n" >> .config
+    - name: Default Config + Add Driver
+      run: |
+        cd openwrt
+        # 使用官方默认配置
+        make defconfig
 
-        # ===== 网卡驱动 =====
+        # ===== 只加网卡驱动 =====
         echo "CONFIG_PACKAGE_kmod-atlantic=y" >> .config
         echo "CONFIG_PACKAGE_kmod-macsec=y" >> .config
         echo "CONFIG_PACKAGE_kmod-crypto-gcm=y" >> .config
         echo "CONFIG_PACKAGE_ethtool=y" >> .config
         echo "CONFIG_PACKAGE_pciutils=y" >> .config
 
-        # ===== AdGuardHome =====
-        echo "CONFIG_PACKAGE_AdGuardHome=y" >> .config
-        echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> .config
-
-        # ===== Docker =====
-        echo "CONFIG_PACKAGE_docker=y" >> .config
-        echo "CONFIG_PACKAGE_dockerd=y" >> .config
-        echo "CONFIG_PACKAGE_docker-compose=y" >> .config
-        echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> .config
-
-        # ===== LuCI 基础 =====
-        echo "CONFIG_PACKAGE_luci=y" >> .config
-        echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
-
-        # ===== 性能优化 =====
-        echo "CONFIG_PACKAGE_irqbalance=y" >> .config
-
         make defconfig
 
-    - name: Download
+    - name: Build Firmware
       run: |
         cd openwrt
-        make download -j8
-
-    - name: Build
-      run: |
-        cd openwrt
-        make -j$(nproc)
+        # -j1 + V=s 保证日志完整，方便调试
+        make -j1 V=s
 
     - name: Upload Firmware
       uses: actions/upload-artifact@v4
       with:
-        name: ImmortalWrt-x86-64-lite
+        name: ImmortalWrt-x86-64-official-driver
         path: openwrt/bin/targets/x86/64/
