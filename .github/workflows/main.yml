@@ -1,0 +1,77 @@
+name: Build kmod-atlantic (matching firmware)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # 强制 Node.js 24
+
+    steps:
+    - name: Checkout ImmortalWrt repo
+      uses: actions/checkout@v4
+
+    - name: Cache build tools and toolchain
+      uses: actions/cache@v3
+      with:
+        path: |
+          staging_dir/host
+          staging_dir/toolchain-*
+          dl
+        key: ${{ runner.os }}-immortalwrt-${{ hashFiles('.config') }}
+        restore-keys: |
+          ${{ runner.os }}-immortalwrt-
+
+    - name: Update feeds
+      run: |
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Enable atlantic module
+      run: |
+        # 确保 atlantic 驱动启用 (M)
+        echo "CONFIG_NET_VENDOR_AQUANTIA=y" >> .config
+        echo "CONFIG_ATLANTIC=m" >> .config
+        make defconfig
+
+    - name: Compile atlantic kernel module
+      run: |
+        # 编译内核模块
+        make target/linux/compile V=s
+        # 安装 atlantic 到 staging_dir，以便生成 ipk
+        make target/linux/install V=s
+
+    - name: Generate kmod-atlantic ipk
+      run: |
+        # 手动打包 kmod-atlantic
+        mkdir -p package/kernel/atlantic
+        cat > package/kernel/atlantic/Makefile << 'EOF'
+include $(TOPDIR)/rules.mk
+PKG_NAME:=kmod-atlantic
+PKG_VERSION:=6.6.122
+PKG_RELEASE:=1
+
+include $(INCLUDE_DIR)/kernel.mk
+include $(INCLUDE_DIR)/package.mk
+
+define KernelPackage/kmod-atlantic
+  SUBMENU:=Network Drivers
+  TITLE:=Aquantia Atlantic Ethernet driver
+  FILES:=$(PKG_BUILD_DIR)/drivers/net/ethernet/aquantia/atlantic/atlantic.ko
+  AUTOLOAD:=$(call AutoLoad,50,kmod-atlantic)
+endef
+
+$(eval $(call KernelPackage,kmod-atlantic))
+EOF
+
+        make package/kernel/atlantic/compile V=s
+        make package/kernel/atlantic/install V=s
+
+    - name: Upload kmod-atlantic.ipk
+      uses: actions/upload-artifact@v4
+      with:
+        name: kmod-atlantic-ipk
+        path: bin/packages/x86_64/kmod-atlantic*.ipk
