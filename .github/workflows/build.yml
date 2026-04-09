@@ -1,4 +1,4 @@
-name: Build ImmortalWrt x86_64
+name: Build ImmortalWrt Full
 
 on:
   workflow_dispatch:
@@ -11,26 +11,23 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Clone ImmortalWrt
+    - name: Clone source
       run: |
         git clone https://github.com/immortalwrt/immortalwrt
-        cd immortalwrt
+        mv immortalwrt openwrt
 
-    - name: Feeds update
+    - name: Prepare
       run: |
-        cd immortalwrt
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+        cd openwrt
+        chmod +x ../scripts/custom.sh
+        ../scripts/custom.sh
 
-    - name: Configure
+    - name: Download deps
       run: |
-        cd immortalwrt
-        make defconfig
-        sed -i 's/# CONFIG_PACKAGE_kmod-atlantic is not set/CONFIG_PACKAGE_kmod-atlantic=y/' .config
-        sed -i 's/# CONFIG_PACKAGE_ethtool is not set/CONFIG_PACKAGE_ethtool=y/' .config
-        sed -i 's/# CONFIG_PACKAGE_pciutils is not set/CONFIG_PACKAGE_pciutils=y/' .config
+        cd openwrt
+        make download -j8
 
     - name: Build
       run: |
-        cd immortalwrt
+        cd openwrt
         make -j$(nproc)
