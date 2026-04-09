@@ -1,4 +1,4 @@
-name: Build kmod-atlantic (matching firmware)
+name: Build kmod-atlantic
 
 on:
   workflow_dispatch:
@@ -32,21 +32,17 @@ jobs:
 
     - name: Enable atlantic module
       run: |
-        # 确保 atlantic 驱动启用 (M)
         echo "CONFIG_NET_VENDOR_AQUANTIA=y" >> .config
         echo "CONFIG_ATLANTIC=m" >> .config
         make defconfig
 
     - name: Compile atlantic kernel module
       run: |
-        # 编译内核模块
         make target/linux/compile V=s
-        # 安装 atlantic 到 staging_dir，以便生成 ipk
         make target/linux/install V=s
 
     - name: Generate kmod-atlantic ipk
       run: |
-        # 手动打包 kmod-atlantic
         mkdir -p package/kernel/atlantic
         cat > package/kernel/atlantic/Makefile << 'EOF'
 include $(TOPDIR)/rules.mk
@@ -66,7 +62,6 @@ endef
 
 $(eval $(call KernelPackage,kmod-atlantic))
 EOF
-
         make package/kernel/atlantic/compile V=s
         make package/kernel/atlantic/install V=s
 
