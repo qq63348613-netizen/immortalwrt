@@ -1,4 +1,4 @@
-name: Build_AQC113C_IPK_Only
+name: Build ImmortalWrt AQC113 IPK
 
 on:
   workflow_dispatch:
@@ -6,65 +6,66 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
+      # 1️⃣ Checkout（空操作，只占位）
       - name: Checkout
-        uses: actions/checkout@v4
+        run: echo "No repository needed, using SDK"
 
-      - name: Initialization Environment
+      # 2️⃣ 安装依赖
+      - name: Install dependencies
         run: |
-          sudo rm -rf /usr/share/dotnet /etc/apt/sources.list.d/* /usr/local/lib/android
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
-          sudo -E apt-get -qq autoremove --purge
-          sudo -E apt-get -qq clean
+          sudo apt update
+          sudo apt install -y build-essential clang flex bison g++ gawk \
+          gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+          python3-setuptools rsync swig unzip zlib1g-dev file wget xz-utils
 
-      - name: Clone source
+      # 3️⃣ 下载 ImmortalWrt SDK
+      - name: Download ImmortalWrt SDK
         run: |
-          # 克隆 ImmortalWrt 24.10 分支
-          git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-24.10 openwrt
-          cd openwrt
-          # 切换到具体的 v24.10.5 标签以对标官方版本
-          git fetch --tags
-          git checkout v24.10.5
+          wget https://github.com/immortalwrt/immortalwrt/releases/download/24.10.5/ImmortalWrt-SDK-24.10.5-x86_64.tar.xz
+          tar -xJf ImmortalWrt-SDK-24.10.5-x86_64.tar.xz
+          cd ImmortalWrt-SDK-24.10.5-x86_64
 
+      # 4️⃣ 更新 feeds
       - name: Update feeds
         run: |
-          cd openwrt
+          cd ImmortalWrt-SDK-24.10.5-x86_64
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Generate Driver Config
+      # 5️⃣ 使用官方默认配置
+      - name: Load official default config
         run: |
-          cd openwrt
-          # 使用修正后的官方 x86_64 模板路径
-          curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/configs/templates/x86_64.config > .config
-          
-          # 将 AQC113C 驱动和相关组件设为模块模式 (m)，生成 IPK
+          cd ImmortalWrt-SDK-24.10.5-x86_64
+          make defconfig
+
+      # 6️⃣ 添加 AQC113 驱动和工具
+      - name: Add AQC113 modules
+        run: |
+          cd ImmortalWrt-SDK-24.10.5-x86_64
           echo "CONFIG_PACKAGE_kmod-atlantic=m" >> .config
           echo "CONFIG_PACKAGE_linux-firmware-aquantia=m" >> .config
           echo "CONFIG_PACKAGE_ethtool=m" >> .config
           echo "CONFIG_PACKAGE_luci-app-ethtool=m" >> .config
-          
-          # 补齐依赖并生成最终配置
           make defconfig
 
-      - name: Download
+      # 7️⃣ 编译
+      - name: Compile IPK
         run: |
-          cd openwrt
-          make download -j16
+          cd ImmortalWrt-SDK-24.10.5-x86_64
+          make package/kmod-atlantic/compile V=s
+          make package/linux-firmware-aquantia/compile V=s
+          make package/ethtool/compile V=s
+          make package/luci-app-ethtool/compile V=s
 
-      - name: Compile
-        run: |
-          cd openwrt
-          # 编译选中的模块包
-          make -j$(nproc) || make -j1 V=s
-
-      - name: Upload Drivers
+      # 8️⃣ 上传生成的 IPK
+      - name: Upload IPK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AQC113C_IPK_Package
+          name: ImmortalWrt-AQC113-IPK
           path: |
-            openwrt/bin/targets/x86/64/kmods/*/kmod-atlantic*.ipk
-            openwrt/bin/packages/x86_64/base/linux-firmware-aquantia*.ipk
-            openwrt/bin/packages/x86_64/base/ethtool*.ipk
-            openwrt/bin/packages/x86_64/luci/luci-app-ethtool*.ipk
+            ImmortalWrt-SDK-24.10.5-x86_64/bin/packages/x86_64/base/kmod-atlantic_*.ipk
+            ImmortalWrt-SDK-24.10.5-x86_64/bin/packages/x86_64/base/linux-firmware-aquantia_*.ipk
+            ImmortalWrt-SDK-24.10.5-x86_64/bin/packages/x86_64/base/ethtool_*.ipk
+            ImmortalWrt-SDK-24.10.5-x86_64/bin/packages/x86_64/base/luci-app-ethtool_*.ipk
