@@ -1,4 +1,4 @@
-name: Build_AQC113C_Driver_Only
+name: Build_AQC113C_IPK_Only
 
 on:
   workflow_dispatch:
@@ -20,10 +20,10 @@ jobs:
 
       - name: Clone source
         run: |
-          # 克隆 24.10 分支
+          # 克隆 ImmortalWrt 24.10 分支
           git clone --depth 1 https://github.com/immortalwrt/immortalwrt -b openwrt-24.10 openwrt
           cd openwrt
-          # 切换到具体的 v24.10.5 标签以对标官方固件
+          # 切换到具体的 v24.10.5 标签以对标官方版本
           git fetch --tags
           git checkout v24.10.5
 
@@ -36,14 +36,12 @@ jobs:
       - name: Generate Driver Config
         run: |
           cd openwrt
-          # 【修正后的 URL】直接从镜像配置目录拉取 x86_64 的基础配置
+          # 使用修正后的官方 x86_64 模板路径
           curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/configs/templates/x86_64.config > .config
           
-          # 仅选中 AQC113C 核心驱动及固件，设为模块 (m)
+          # 将 AQC113C 驱动和相关组件设为模块模式 (m)，生成 IPK
           echo "CONFIG_PACKAGE_kmod-atlantic=m" >> .config
           echo "CONFIG_PACKAGE_linux-firmware-aquantia=m" >> .config
-          
-          # 选中网卡管理工具 (m)
           echo "CONFIG_PACKAGE_ethtool=m" >> .config
           echo "CONFIG_PACKAGE_luci-app-ethtool=m" >> .config
           
@@ -58,14 +56,13 @@ jobs:
       - name: Compile
         run: |
           cd openwrt
-          # 编译独立模块 IPK
+          # 编译选中的模块包
           make -j$(nproc) || make -j1 V=s
 
       - name: Upload Drivers
         uses: actions/upload-artifact@v4
         with:
           name: AQC113C_IPK_Package
-          # 提取编译出的驱动和相关包
           path: |
             openwrt/bin/targets/x86/64/kmods/*/kmod-atlantic*.ipk
             openwrt/bin/packages/x86_64/base/linux-firmware-aquantia*.ipk
