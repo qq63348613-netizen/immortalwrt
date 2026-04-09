@@ -1,0 +1,36 @@
+name: Build ImmortalWrt x86_64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Clone ImmortalWrt
+      run: |
+        git clone https://github.com/immortalwrt/immortalwrt
+        cd immortalwrt
+
+    - name: Feeds update
+      run: |
+        cd immortalwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Configure
+      run: |
+        cd immortalwrt
+        make defconfig
+        sed -i 's/# CONFIG_PACKAGE_kmod-atlantic is not set/CONFIG_PACKAGE_kmod-atlantic=y/' .config
+        sed -i 's/# CONFIG_PACKAGE_ethtool is not set/CONFIG_PACKAGE_ethtool=y/' .config
+        sed -i 's/# CONFIG_PACKAGE_pciutils is not set/CONFIG_PACKAGE_pciutils=y/' .config
+
+    - name: Build
+      run: |
+        cd immortalwrt
+        make -j$(nproc)
