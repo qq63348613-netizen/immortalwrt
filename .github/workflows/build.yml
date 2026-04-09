@@ -1,14 +1,18 @@
-name: Build kmod-atlantic (fixed)
+name: Build kmod-atlantic AUTO (Stable)
 
 on:
   workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
 
     - name: Clone ImmortalWrt
       run: |
@@ -20,20 +24,38 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Configure
+    - name: Configure (Atlantic Only)
       run: |
         cd openwrt
-        make defconfig
-        echo "CONFIG_PACKAGE_kmod-atlantic=m" >> .config
+
+        # 默认配置
         make defconfig
 
+        # 只编 atlantic（生成 ipk）
+        echo "CONFIG_PACKAGE_kmod-atlantic=m" >> .config
+
+        make defconfig
+
+    # ⭐ 关键：先编工具链（解决 m4/flex 问题）
+    - name: Build Tools
+      run: |
+        cd openwrt
+        make tools/install -j$(nproc) V=s
+
+    # ⭐ 再编 toolchain（确保内核模块环境完整）
+    - name: Build Toolchain
+      run: |
+        cd openwrt
+        make toolchain/install -j$(nproc) V=s
+
+    # ⭐ 只编内核模块（不会编整个系统）
     - name: Build Kernel Modules
       run: |
         cd openwrt
         make target/linux/compile -j$(nproc) V=s
 
-    - name: Upload ipk
+    - name: Upload kmod-atlantic
       uses: actions/upload-artifact@v4
       with:
-        name: kmod-atlantic
+        name: kmod-atlantic-ipk
         path: openwrt/bin/targets/x86/64/packages/kmod-atlantic*.ipk
