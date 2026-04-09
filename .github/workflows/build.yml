@@ -1,4 +1,4 @@
-name: Build kmod-atlantic for ImmortalWrt Official
+name: Build kmod-atlantic (fixed)
 
 on:
   workflow_dispatch:
@@ -8,8 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
     - name: Clone ImmortalWrt
       run: |
@@ -21,29 +20,20 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Clean Previous Build
+    - name: Configure
       run: |
         cd openwrt
-        make distclean
-
-    - name: Configure Only Atlantic Driver
-      run: |
-        cd openwrt
-        # 加载官方默认配置（全家桶原版不动）
+        make defconfig
+        echo "CONFIG_PACKAGE_kmod-atlantic=m" >> .config
         make defconfig
 
-        # 只加网卡驱动
-        echo "CONFIG_PACKAGE_kmod-atlantic=y" >> .config
-
-        make defconfig
-
-    - name: Build kmod-atlantic Package
+    - name: Build Kernel Modules
       run: |
         cd openwrt
-        make package/kernel/atlantic/compile V=s
+        make target/linux/compile -j$(nproc) V=s
 
-    - name: Upload kmod-atlantic .ipk
+    - name: Upload ipk
       uses: actions/upload-artifact@v4
       with:
         name: kmod-atlantic
-        path: openwrt/bin/packages/x86_64/kmod-atlantic*.ipk
+        path: openwrt/bin/targets/x86/64/packages/kmod-atlantic*.ipk
